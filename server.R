@@ -205,7 +205,7 @@ shinyServer(function(input, output, session) {
   #Select OTU number widget
   output$OTUSelector <- renderUI({
     cluster_abunds <- aggregate(rowSums(timeseries_table), by=list(sequencecluster_labels), FUN=sum)
-    cluster_names <- as.numeric(cluster_abunds[order(cluster_abunds[,2], decreasing=TRUE),1])
+    cluster_names <- cluster_abunds[order(cluster_abunds[,2], decreasing=TRUE),1]
     select <- cluster_names[1]
     selectInput('otu_number', 'OTU Cluster number:', choices = cluster_names,
                 multiple = FALSE, selectize = FALSE, selected = select)
@@ -268,16 +268,16 @@ shinyServer(function(input, output, session) {
     # Plotting code for main time-series plot
     layout(as.matrix(cbind(c(1,3),c(2,4))))
     matplot(tp, t(subset_table),
-            type='l', main=paste("Cluster", input$otu_number),
+            type='l', main=paste("OTU", input$otu_number),
             xlab="Time", ylab="Sequence Abundance", col=as.factor(time_clusts))
     matplot(tp, t(col_norm_subset_table),
-            type='l', main=paste("Cluster", input$otu_number, "Normalized by Sequence Depth"),
+            type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth"),
             xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
     matplot(tp, t(norm_subset_table),
-            type='l', main=paste("Cluster", input$otu_number, "Normalized Within Time-series"),
+            type='l', main=paste("OTU", input$otu_number, "Normalized Within Time-series"),
             xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
     matplot(tp, t(double_norm),
-            type='l', main=paste("Cluster", input$otu_number, "Normalized by Sequence Depth and Within Time-series"),
+            type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth and Within Time-series"),
             xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
   }, height=900, width=1200)
   
@@ -341,35 +341,102 @@ shinyServer(function(input, output, session) {
       paste('timeseries_cluster-eps_', input$cluster_param, "-num_", input$cluster_number, '.svg', sep="")
     },
     content <- function(file) {
-        #Take only the time-series that are in the current cluster
-        subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-        #Make a normalized version
-        norm_subset_table <- subset_table/rowSums(subset_table)
-        col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
-        # If a column has been removed by filter step, normalization
-        # returns NaNs and for some reason Inf
-        # set it as zero to remove gaps in plot
-        col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
-        col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
-        double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
-        #Plotting code for main time-series plot
-        svg("tsplot.svg",height=9,width=12)
-        # Plotting code for main time-series plot
-        layout(as.matrix(cbind(c(1,3),c(2,4))))
-        matplot(tp, t(subset_table),
-              type='l', main=paste("Cluster", input$cluster_number),
-              xlab="Time", ylab="Sequence Abundance", col="#00000080")
-        matplot(tp, t(col_norm_subset_table),
-              type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth"),
-              xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-        matplot(tp, t(norm_subset_table),
-              type='l', main=paste("Cluster", input$cluster_number, "Normalized Within Time-series"),
-              xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-        matplot(tp, t(double_norm),
-              type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth and Within Time-series"),
-              xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-        dev.off()
-        file.copy("tsplot.svg", file)
+      subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
+      # Make a normalized version
+      norm_subset_table <- subset_table/rowSums(subset_table)
+      col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
+      # If a column has been removed by filter step, normalization
+      # returns NaNs and for some reason Inf
+      # set it as zero to remove gaps in plot
+      col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
+      col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
+      double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
+      svg("tsplot.svg",height=9,width=12)
+      # Plotting code for main time-series plot
+      layout(as.matrix(cbind(c(1,3),c(2,4))))
+      matplot(tp, t(subset_table),
+            type='l', main=paste("Cluster", input$cluster_number),
+            xlab="Time", ylab="Sequence Abundance", col="#00000080")
+      matplot(tp, t(col_norm_subset_table),
+            type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth"),
+            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
+      matplot(tp, t(norm_subset_table),
+            type='l', main=paste("Cluster", input$cluster_number, "Normalized Within Time-series"),
+            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
+      matplot(tp, t(double_norm),
+            type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth and Within Time-series"),
+            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
+      dev.off()
+      file.copy("tsplot.svg", file)
     }
   )
+  
+  output$saveOTUTable <- downloadHandler(
+    filename <- function() {
+      paste("otu_num_", input$otu_number, ".csv", sep="")
+    },
+    content <- function(file) {
+      subset_ids <- sequence_ids[sequencecluster_labels==input$otu_number]
+      subset_table <- timeseries_table[sequencecluster_labels==input$otu_number, ]
+      subset_table <- as.matrix(subset_table)
+      if (dim(subset_table)[2] == 1) {
+        subset_table <- t(subset_table)
+      }
+      tax_ids <- taxonomic_ids[sequencecluster_labels==input$otu_number]
+      time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
+      
+      save_df <- data.frame(Abundance=rowSums(subset_table),
+                   TimeClustNumber=time_clusts,
+                   TaxonomicID=tax_ids,
+                   SequenceID=subset_ids)
+      time_series <- as.data.frame(subset_table)
+      colnames(time_series) <- tp
+      save_df <- cbind(save_df, time_series)
+      write.csv(save_df, file)
+    }
+  )
+  
+  # Save OTU plot as SVG
+  output$saveOTUPlot <- downloadHandler(
+    filename <- function() {
+      paste('otu_num_', input$otu_number, '.svg', sep="")
+    },
+    content <- function(file) {
+        #Take only the time-series that are in the current cluster
+      subset_table <- timeseries_table[sequencecluster_labels==input$otu_number, ]
+      subset_table <- as.matrix(subset_table)
+      # Fix behaviour when there's only one row, it makes it
+      # column-wise, so we have to transpose it
+      if (dim(subset_table)[2] == 1) {
+        subset_table <- t(subset_table)
+      }
+      norm_subset_table <- subset_table/rowSums(subset_table)
+      col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
+      # If a column has been removed by filter step, normalization
+      # returns NaNs and for some reason Inf
+      # set it as zero to remove gaps in plot
+      col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
+      col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
+      double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
+      time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
+      # Plotting code for main OTU plot
+      svg("otuplot.svg",height=9,width=12)
+      layout(as.matrix(cbind(c(1,3),c(2,4))))
+      matplot(tp, t(subset_table),
+              type='l', main=paste("OTU", input$otu_number),
+              xlab="Time", ylab="Sequence Abundance", col=as.factor(time_clusts))
+      matplot(tp, t(col_norm_subset_table),
+              type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth"),
+              xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
+      matplot(tp, t(norm_subset_table),
+              type='l', main=paste("OTU", input$otu_number, "Normalized Within Time-series"),
+              xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
+      matplot(tp, t(double_norm),
+              type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth and Within Time-series"),
+              xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
+      dev.off()
+      file.copy("otuplot.svg", file)
+    }
+  )
+  
 })

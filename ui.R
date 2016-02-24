@@ -68,6 +68,10 @@ shinyUI(
               fluidRow(
                 uiOutput("OTUSelector")
               ),
+              br(),
+              downloadLink("saveOTUTable", "Save current OTU (.csv)"),
+              br(),
+              downloadLink("saveOTUPlot", "Save current plot (.svg)"),
             width=2),
             mainPanel(
               fluidRow(
