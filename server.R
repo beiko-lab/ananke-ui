@@ -13,7 +13,7 @@ shinyServer(function(input, output, session) {
   # --------------------
   # Use shinyFiles library for selecting local files
   # The built-in fileInput copies the file -- not necessary
-  shinyFileChoose(input, 'timeseries_database', root=c(home=getwd()), filetypes=c('h5'), session=session)
+  shinyFileChoose(input, 'timeseries_database', root=list(home='~',root='/'), filetypes=c('h5'), session=session)
   
   output$tst_filename <- renderPrint({
     if (is.null(input$timeseries_database))
