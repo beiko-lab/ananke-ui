@@ -4,6 +4,7 @@ library(shinyFiles)
 library(rhdf5)
 library(SparseM)
 library(ggplot2)
+library(reshape2)
 
 shinyServer(function(input, output, session) {
   
@@ -39,6 +40,8 @@ shinyServer(function(input, output, session) {
   timeseries_table <- NULL
   timeseries_totals <- NULL
   cluster_names <- NULL
+  file_version <- NULL
+  mask <- NULL
   
   loadFilesResult <- observeEvent(input$loadFiles, {
     withProgress(message = 'Loading database file, please wait...', value = 0, {
@@ -94,6 +97,18 @@ shinyServer(function(input, output, session) {
       min_param <<- cluster_params$param_min
       max_param <<- cluster_params$param_max
       step_size <<- cluster_params$param_step
+      file_version <- h5readAttributes(tsdatabase_path,"/")$origin_version
+      if (! is.null(file_version)) {
+          file_version <- strsplit(file_version, ".", fixed=TRUE)[[1]]
+          if ((file_version[2] >= 1) & (file_version[2] >= 1)) {
+              #This dataset exists in version >= 0.1.1
+              mask <<- h5read(tsdatabase_path,"samples/mask")
+          } else {
+              mask <<- rep(1, length(tp))
+          }
+      } else {
+          mask <<- rep(1, length(tp))
+      }
       incProgress(1, detail="Triangulation complete.")
     })
   })
@@ -114,18 +129,29 @@ shinyServer(function(input, output, session) {
   nclusters <- eventReactive(input$plotnclust, {
     withProgress(message = 'Retrieving clusters from database file...', value = 0, {
       nclusts <- c()
+      noise_size <- c()
       for (i in 1:nparams) {
-        incProgress(i/nparams)
+        incProgress(1/nparams)
         clusts <- h5read(tsdatabase_path,"genes/clusters",index=list(i,NULL))
+        noise_size <- c(noise_size, sum(timeseries_table[which(clusts == "-1"),]))
         nclusts <- c(nclusts, length(unique(t(clusts))))
       }
-      nclusts
+      list(nclusts=nclusts,noise_size=noise_size)
     })
   })
   
   output$clusterVsEps <- renderPlot({
+      layout(as.matrix(cbind(1,2,3)))
       params <- 0:(nparams-1)*step_size+min_param
-      plot(params,nclusters(),type='l')
+      res <- nclusters()
+      nclusts <- res$nclusts
+      noise_size <- res$noise_size
+      plot(params, nclusts, type='l', xlab="epsilon", ylab="Number of time-series clusters")
+      plot(params, noise_size, type='l', xlab="epsilon", ylab="Total sequences in noise bin")
+      max_eps_ind <- which(nclusts == max(nclusts))[1]
+      clusts <- as.vector(h5read(tsdatabase_path,"genes/clusters",index=list(max_eps_ind,NULL)))
+      clust_totals <- aggregate(rowSums(timeseries_table), by=list(clusts), FUN=sum)
+      hist(log10(clust_totals$x), breaks=100, xlab="Log10 cluster size (number of sequences)")
   })
   
   #Simpson Index (list items must be proportions)
@@ -155,6 +181,7 @@ shinyServer(function(input, output, session) {
                          data.frame(values=simpson_indices,
                          level=rep(tax_levels[level], length(simpson_indices))))
       }
+      print(aggregate(taxdf$values, by=list(taxdf$level), FUN=mean))
       taxdf
   })
       
@@ -219,30 +246,8 @@ shinyServer(function(input, output, session) {
       return()
     # Take only the time-series that are in the current cluster
     subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-    # Make a normalized version
-    norm_subset_table <- subset_table/rowSums(subset_table)
-    col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
-    # If a column has been removed by filter step, normalization
-    # returns NaNs and for some reason Inf
-    # set it as zero to remove gaps in plot
-    col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
-    col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
-    double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
-    # Plotting code for main time-series plot
-    layout(as.matrix(cbind(c(1,3),c(2,4))))
-    matplot(tp, t(subset_table),
-            type='l', main=paste("Cluster", input$cluster_number),
-            xlab="Time", ylab="Sequence Abundance", col="#00000080")
-    matplot(tp, t(col_norm_subset_table),
-            type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth"),
-            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-    matplot(tp, t(norm_subset_table),
-            type='l', main=paste("Cluster", input$cluster_number, "Normalized Within Time-series"),
-            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-    matplot(tp, t(double_norm),
-            type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth and Within Time-series"),
-            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-  }, height=900, width=1200)
+    plotWrapper(subset_table)
+  }, height=900, width=1000)
   
   # Plot by OTU number
   output$otu_plot <- renderPlot({
@@ -256,30 +261,8 @@ shinyServer(function(input, output, session) {
     if (dim(subset_table)[2] == 1) {
       subset_table <- t(subset_table)
     }
-    norm_subset_table <- subset_table/rowSums(subset_table)
-    col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
-    # If a column has been removed by filter step, normalization
-    # returns NaNs and for some reason Inf
-    # set it as zero to remove gaps in plot
-    col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
-    col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
-    double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
-    time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
-    # Plotting code for main time-series plot
-    layout(as.matrix(cbind(c(1,3),c(2,4))))
-    matplot(tp, t(subset_table),
-            type='l', main=paste("OTU", input$otu_number),
-            xlab="Time", ylab="Sequence Abundance", col=as.factor(time_clusts))
-    matplot(tp, t(col_norm_subset_table),
-            type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth"),
-            xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
-    matplot(tp, t(norm_subset_table),
-            type='l', main=paste("OTU", input$otu_number, "Normalized Within Time-series"),
-            xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
-    matplot(tp, t(double_norm),
-            type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth and Within Time-series"),
-            xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
-  }, height=900, width=1200)
+    plotWrapper(subset_table, otu_plot=TRUE)
+  }, height=900, width=1000)
   
   #Generates a table with the abundance, taxonomy, and cluster information
   output$infotable <- renderDataTable({
@@ -341,31 +324,16 @@ shinyServer(function(input, output, session) {
       paste('timeseries_cluster-eps_', input$cluster_param, "-num_", input$cluster_number, '.svg', sep="")
     },
     content <- function(file) {
-      subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-      # Make a normalized version
-      norm_subset_table <- subset_table/rowSums(subset_table)
-      col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
-      # If a column has been removed by filter step, normalization
-      # returns NaNs and for some reason Inf
-      # set it as zero to remove gaps in plot
-      col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
-      col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
-      double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
-      svg("tsplot.svg",height=9,width=12)
+      if (is.null(input$cluster_param))
+        return()
+      if (is.null(input$cluster_number))
+        return()
+      # Take only the time-series that are in the current cluster
+      subset_table <- timeseries_table[current_clusters==input$cluster_number, ]   
+      svg("tsplot.svg",height=9,width=10)
       # Plotting code for main time-series plot
       layout(as.matrix(cbind(c(1,3),c(2,4))))
-      matplot(tp, t(subset_table),
-            type='l', main=paste("Cluster", input$cluster_number),
-            xlab="Time", ylab="Sequence Abundance", col="#00000080")
-      matplot(tp, t(col_norm_subset_table),
-            type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth"),
-            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-      matplot(tp, t(norm_subset_table),
-            type='l', main=paste("Cluster", input$cluster_number, "Normalized Within Time-series"),
-            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
-      matplot(tp, t(double_norm),
-            type='l', main=paste("Cluster", input$cluster_number, "Normalized by Sequence Depth and Within Time-series"),
-            xlab="Time", ylab="Sequence Relative Abundance", col="#00000080")
+      plotWrapper(subset_table)
       dev.off()
       file.copy("tsplot.svg", file)
     }
@@ -402,7 +370,9 @@ shinyServer(function(input, output, session) {
       paste('otu_num_', input$otu_number, '.svg', sep="")
     },
     content <- function(file) {
-        #Take only the time-series that are in the current cluster
+      if (is.null(input$otu_number))
+      return()
+      # Take only the time-series that are in the current cluster
       subset_table <- timeseries_table[sequencecluster_labels==input$otu_number, ]
       subset_table <- as.matrix(subset_table)
       # Fix behaviour when there's only one row, it makes it
@@ -410,33 +380,90 @@ shinyServer(function(input, output, session) {
       if (dim(subset_table)[2] == 1) {
         subset_table <- t(subset_table)
       }
-      norm_subset_table <- subset_table/rowSums(subset_table)
-      col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
-      # If a column has been removed by filter step, normalization
-      # returns NaNs and for some reason Inf
-      # set it as zero to remove gaps in plot
-      col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
-      col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
-      double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
-      time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
       # Plotting code for main OTU plot
-      svg("otuplot.svg",height=9,width=12)
+      svg("otuplot.svg",height=9,width=10)
       layout(as.matrix(cbind(c(1,3),c(2,4))))
-      matplot(tp, t(subset_table),
-              type='l', main=paste("OTU", input$otu_number),
-              xlab="Time", ylab="Sequence Abundance", col=as.factor(time_clusts))
-      matplot(tp, t(col_norm_subset_table),
-              type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth"),
-              xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
-      matplot(tp, t(norm_subset_table),
-              type='l', main=paste("OTU", input$otu_number, "Normalized Within Time-series"),
-              xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
-      matplot(tp, t(double_norm),
-              type='l', main=paste("OTU", input$otu_number, "Normalized by Sequence Depth and Within Time-series"),
-              xlab="Time", ylab="Sequence Relative Abundance", col=as.factor(time_clusts))
+      plotWrapper(subset_table, otu_plot=TRUE)
       dev.off()
       file.copy("otuplot.svg", file)
     }
   )
   
+  plotWrapper <- function(subset_table, otu_plot=FALSE) {
+    # Make a normalized version
+    norm_subset_table <- subset_table/rowSums(subset_table)
+    col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
+    # If a column has been removed by filter step, normalization
+    # returns NaNs and for some reason Inf
+    # set it as zero to remove gaps in plot
+    col_norm_subset_table[is.nan(col_norm_subset_table)] <- 0
+    col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
+    double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
+    # Plotting code for main time-series plot
+    p1 <- plotTimeSeriesMatrix(subset_table, "Raw Sequence Abundance", "Time", "Abundance", otu_plot)
+    p2 <- plotTimeSeriesMatrix(col_norm_subset_table, "Normalized by Sequence Depth", "Time", "Relative Abundance", otu_plot)
+    p3 <- plotTimeSeriesMatrix(norm_subset_table, "Normalized within Time-series", "Time", "Relative Abundance", otu_plot)
+    p4 <- plotTimeSeriesMatrix(double_norm, "Normalized by Sequence Depth and Within Time-series", "Time", "Relative Abundance", otu_plot)
+    multiplot(p1, p2, p3, p4)
+  }
+  
+  plotTimeSeriesMatrix<-function(mat, plot_title, x_label, y_label, otu_plot=FALSE) {
+      #Add the time points, melt the matrix
+      colnames(mat) <- tp
+      mmat <- melt(t(mat))
+      mmat$mask <- mask
+      colnames(mmat) <- c("time","sequence","value","mask")
+      if (otu_plot) {
+          time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
+          mmat$time_clust <- time_clusts[mmat$sequence]
+          if (input$excludeNoise) {
+              mmat <- mmat[mmat$time_clust != -1,]
+          }
+          p <- ggplot(mmat,aes(x=time,y=value,group=sequence,colour=time_clust))+geom_line(alpha=0.3, size=1.5)
+      } else {
+          p <- ggplot(mmat,aes(x=time,y=value,group=sequence))+geom_line(alpha=0.3, size=1.5)
+      }
+      if (length(unique(mask)) > 1) {
+          p <- p+facet_wrap(~mask, nrow=1, scales="free")
+      }
+      p <- p+ggtitle(plot_title)+xlab(x_label)+ylab(y_label)
+      return(p)
+  }
+  
 })
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}

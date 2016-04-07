@@ -1,7 +1,7 @@
 library(shinyFiles)
 
 shinyUI(
-  navbarPage("timeclust-ui",
+  navbarPage("ananke-ui",
     tabPanel("Setup/Load Data",
       fixedPage(
         h3("File Selection"),
@@ -68,6 +68,8 @@ shinyUI(
               fluidRow(
                 uiOutput("OTUSelector")
               ),
+              br(),
+              checkboxInput("excludeNoise", label = "Exclude Noise (-1) from Plot", value = FALSE),
               br(),
               downloadLink("saveOTUTable", "Save current OTU (.csv)"),
               br(),
