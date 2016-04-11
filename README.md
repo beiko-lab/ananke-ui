@@ -46,3 +46,6 @@ Both the time series plot and the data table can be saved using links in the lef
 
 ###### Exploring OTUs
 OTUs are presented in an identical way to the time series clusters. The time series plots are coloured by time clusters (at the epsilon currently selected in the time cluster tab). This allows the user to spot OTUs with temporally discordant sequences at a glance. OTUs with multiple line colours contain sequences which demonstrate different temporal dynamics. The data table lists the time cluster IDs, allowing you to explore these on the previous tab (you can type them into the cluster ID dropdown to get to them quickly).
+
+Example of an OTU displaying multiple temporal dynamics. Lines are coloured according to time-series cluster.
+<img src="http://kiwi.cs.dal.ca/~beikolab/DiscordantOTU.png" width="600">
