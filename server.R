@@ -141,7 +141,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$clusterVsEps <- renderPlot({
-      layout(as.matrix(cbind(1,2,3)))
+      layout(as.matrix(cbind(1,2,3,4)))
       params <- 0:(nparams-1)*step_size+min_param
       res <- nclusters()
       nclusts <- res$nclusts
@@ -152,6 +152,8 @@ shinyServer(function(input, output, session) {
       clusts <- as.vector(h5read(tsdatabase_path,"genes/clusters",index=list(max_eps_ind,NULL)))
       clust_totals <- aggregate(rowSums(timeseries_table), by=list(clusts), FUN=sum)
       hist(log10(clust_totals$x), breaks=100, xlab="Log10 cluster size (number of sequences)")
+      unique_seqs <- table(clusts)
+      hist(log10(unique_seqs), breaks=100, xlab="Log10 cluster size (number of unique sequences)")
   })
   
   #Simpson Index (list items must be proportions)
@@ -240,14 +242,17 @@ shinyServer(function(input, output, session) {
 
   #Main time series cluster plot
   output$main_plot <- renderPlot({
-    if (is.null(input$cluster_param))
-      return()
-    if (is.null(input$cluster_number))
-      return()
+    input$plotMain
+    isolate({
+      if (is.null(input$cluster_param))
+        return()
+      if (is.null(input$cluster_number))
+        return()
     # Take only the time-series that are in the current cluster
-    subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-    plotWrapper(subset_table)
-  }, height=900, width=1000)
+      subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
+      plotWrapper(subset_table)
+    })
+  }, height=900, width=1500)
   
   # Plot by OTU number
   output$otu_plot <- renderPlot({
@@ -262,7 +267,7 @@ shinyServer(function(input, output, session) {
       subset_table <- t(subset_table)
     }
     plotWrapper(subset_table, otu_plot=TRUE)
-  }, height=900, width=1000)
+  }, height=900, width=1500)
   
   #Generates a table with the abundance, taxonomy, and cluster information
   output$infotable <- renderDataTable({
@@ -330,7 +335,7 @@ shinyServer(function(input, output, session) {
         return()
       # Take only the time-series that are in the current cluster
       subset_table <- timeseries_table[current_clusters==input$cluster_number, ]   
-      svg("tsplot.svg",height=9,width=10)
+      svg("tsplot.svg",height=9,width=15)
       # Plotting code for main time-series plot
       layout(as.matrix(cbind(c(1,3),c(2,4))))
       plotWrapper(subset_table)
@@ -381,7 +386,7 @@ shinyServer(function(input, output, session) {
         subset_table <- t(subset_table)
       }
       # Plotting code for main OTU plot
-      svg("otuplot.svg",height=9,width=10)
+      svg("otuplot.svg",height=9,width=15)
       layout(as.matrix(cbind(c(1,3),c(2,4))))
       plotWrapper(subset_table, otu_plot=TRUE)
       dev.off()
@@ -424,7 +429,7 @@ shinyServer(function(input, output, session) {
           p <- ggplot(mmat,aes(x=time,y=value,group=sequence))+geom_line(alpha=0.3, size=1.5)
       }
       if (length(unique(mask)) > 1) {
-          p <- p+facet_wrap(~mask, nrow=1, scales="free")
+          p <- p+facet_wrap(~mask, nrow=1, scales="free_x")
       }
       p <- p+ggtitle(plot_title)+xlab(x_label)+ylab(y_label)
       return(p)
