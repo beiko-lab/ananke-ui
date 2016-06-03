@@ -242,17 +242,14 @@ shinyServer(function(input, output, session) {
 
   #Main time series cluster plot
   output$main_plot <- renderPlot({
-    input$plotMain
-    isolate({
-      if (is.null(input$cluster_param))
-        return()
-      if (is.null(input$cluster_number))
-        return()
+    if (is.null(input$cluster_param))
+      return()
+    if (is.null(input$cluster_number))
+      return()
     # Take only the time-series that are in the current cluster
-      subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-      plotWrapper(subset_table)
-    })
-  }, height=900, width=1500)
+    subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
+    plotWrapper(subset_table)
+  }, height=900, width=1200)
   
   # Plot by OTU number
   output$otu_plot <- renderPlot({
@@ -267,7 +264,7 @@ shinyServer(function(input, output, session) {
       subset_table <- t(subset_table)
     }
     plotWrapper(subset_table, otu_plot=TRUE)
-  }, height=900, width=1500)
+  }, height=900, width=1200)
   
   #Generates a table with the abundance, taxonomy, and cluster information
   output$infotable <- renderDataTable({
@@ -323,6 +320,28 @@ shinyServer(function(input, output, session) {
     }
   )
   
+  output$saveAll <- downloadHandler(
+    filename <- function() {
+      paste('all_clusters-eps_', input$cluster_param, '.csv', sep="")
+    },
+    content <- function(file) {
+        ids <- sequence_ids
+        full_table <- timeseries_table
+        tax_ids <- taxonomic_ids
+        phylo_clusters <- sequencecluster_labels
+        time_clusts <- current_clusters
+        save_df <- data.frame(SequenceID=ids,
+               Abundance=rowSums(full_table),
+               TaxonomicID=tax_ids,
+               PhyloClusterNumber=phylo_clusters,
+               TimeCluster=time_clusts)
+        time_series <- as.data.frame(timeseries_table)
+        colnames(time_series) <- tp
+        save_df <- cbind(save_df, time_series)
+        write.csv(save_df, file)
+    }
+  )
+  
   # Save time cluster plot as SVG
   output$saveMainPlot <- downloadHandler(
   filename <- function() {
@@ -335,7 +354,7 @@ shinyServer(function(input, output, session) {
         return()
       # Take only the time-series that are in the current cluster
       subset_table <- timeseries_table[current_clusters==input$cluster_number, ]   
-      svg("tsplot.svg",height=9,width=15)
+      svg("tsplot.svg",height=9,width=12)
       # Plotting code for main time-series plot
       layout(as.matrix(cbind(c(1,3),c(2,4))))
       plotWrapper(subset_table)
@@ -386,7 +405,7 @@ shinyServer(function(input, output, session) {
         subset_table <- t(subset_table)
       }
       # Plotting code for main OTU plot
-      svg("otuplot.svg",height=9,width=15)
+      svg("otuplot.svg",height=9,width=12)
       layout(as.matrix(cbind(c(1,3),c(2,4))))
       plotWrapper(subset_table, otu_plot=TRUE)
       dev.off()

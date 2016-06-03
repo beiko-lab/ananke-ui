@@ -43,12 +43,13 @@ shinyUI(
                  uiOutput("clusterSelector")
               ),
               br(),
-              actionButton("plotMain","Plot Cluster"),
-              br(),
               br(),
               downloadLink("saveTable", "Save current cluster (.csv)"),
               br(),
               downloadLink("saveMainPlot", "Save current plot (.svg)"),
+              br(),
+              downloadLink("saveAll", "Save all clusters (.csv)"),
+              br(),
             width=2),                                
             mainPanel(
               fluidRow(
