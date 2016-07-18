@@ -25,9 +25,18 @@ shinyUI(
       fluidPage(
         titlePanel("Dataset Summary and Statistics"),
         actionButton("plotnclust","Plot Number of Clusters vs Clustering Parameter"),
-        plotOutput("clusterVsEps", width= "50%"),
+        plotOutput("clusterVsEps", width= "75%"),
+        "Maximum number of clusters:",
+        textOutput("maxCluster"),
+        "Epsilon at which maximum number of clusters is found:",
+        textOutput("maxEps"),
+        "Proportion of data that are labeled as noise at this epsilon:",
+        textOutput("epsNoise"),
+        br(),
         uiOutput("plotConsistButton"),
-        plotOutput("temptaxconsist",width="75%")
+        plotOutput("temptaxconsist",width="75%"),
+        br(),
+        tableOutput("temptaxconsisttab")
       )
     ),
     tabPanel("Explore Clusters",
@@ -54,7 +63,7 @@ shinyUI(
             mainPanel(
               fluidRow(
                 column(8,
-                  plotOutput("main_plot", width = "150%", height="900px")
+                  plotOutput("main_plot", width = "150%", height="400px")
                 )
               ),
               fluidRow(
@@ -82,7 +91,7 @@ shinyUI(
             mainPanel(
               fluidRow(
                 column(8,
-                  plotOutput("otu_plot", width="150%", height="900px")
+                  plotOutput("otu_plot", width="150%", height="400px")
                 )
               ),
               fluidRow(

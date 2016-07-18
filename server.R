@@ -24,6 +24,8 @@ shinyServer(function(input, output, session) {
   # Declare some variables here so we can viciously abuse R's scoping
   # In the future, I should figure out if Shiny can handle this properly
   # because this has gotten a bit out of hand
+  plot_width <- 12
+  plot_height <- 4
   max_cluster <- NULL
   min_param <- NULL
   step_size <- NULL
@@ -36,6 +38,7 @@ shinyServer(function(input, output, session) {
   nsequences <- NULL
   nsamples <- NULL
   nparams <- NULL
+  nobs <- NULL
   current_clusters <- NULL
   timeseries_table <- NULL
   timeseries_totals <- NULL
@@ -49,14 +52,13 @@ shinyServer(function(input, output, session) {
       #First, load the cluster file
       
       h5data <- h5ls(tsdatabase_path)
-      nsequences <<- as.numeric(h5data[h5data$name=="sequenceids",]$dim)
+      nobs <<- as.numeric(h5data[h5data$name=="sequenceids",]$dim)
       nsamples <<- as.numeric(h5data[h5data$name=="names",]$dim)
       nparams <<- as.numeric(strsplit(h5data[h5data$name=="clusters",]$dim,' x')[[1]][1])
       incProgress(0.1, detail = "Reticulating splines...")
       #Time cluster labels loaded on the fly
       #Time-series table
       tslength<-as.numeric(h5data[h5data$name=="data",]$dim)
-      tsdata<-vector(length=tslength)
       #Small enough to read in one go
       tsindptr<-h5read(tsdatabase_path,"timeseries/indptr")
       incProgress(0.25, detail = "De-chunking time dimension...")
@@ -83,8 +85,9 @@ shinyServer(function(input, output, session) {
       #that the full class can do
       timeseries_table <<- as.matrix(new("matrix.csr",ra=as.numeric(tsdata),
                  ja=as.integer(tsindices),ia=as.integer(tsindptr),
-                 dimension=as.integer(c(nsequences,nsamples))))
+                 dimension=as.integer(c(nobs,nsamples))))
       timeseries_totals <<- colSums(timeseries_table)
+      nsequences <<- sum(timeseries_totals)
       incProgress(0.5, detail="Identifying life-forms...")
       #Read in auxiliary information
       taxonomic_ids <<- h5read(tsdatabase_path, "genes/taxonomy")
@@ -146,26 +149,37 @@ shinyServer(function(input, output, session) {
       res <- nclusters()
       nclusts <- res$nclusts
       noise_size <- res$noise_size
-      plot(params, nclusts, type='l', xlab="epsilon", ylab="Number of time-series clusters")
-      plot(params, noise_size, type='l', xlab="epsilon", ylab="Total sequences in noise bin")
+      plot(params, nclusts, type='l', xlab="epsilon", ylab="Number of time-series clusters", cex.lab=1.5, cex.axis=1.5)
+      plot(params, noise_size/nsequences, type='l', xlab="epsilon", ylab="Total sequences in noise bin", cex.lab=1.5, cex.axis=1.5)
+      output$maxCluster<<-renderText({
+        as.numeric(max(nclusts))
+      })
       max_eps_ind <- which(nclusts == max(nclusts))[1]
+      output$maxEps<<-renderText({
+        as.numeric(params[max_eps_ind])
+      })
+      output$epsNoise<<-renderText({
+        as.numeric(noise_size[max_eps_ind]/nsequences)
+      })
       clusts <- as.vector(h5read(tsdatabase_path,"genes/clusters",index=list(max_eps_ind,NULL)))
       clust_totals <- aggregate(rowSums(timeseries_table), by=list(clusts), FUN=sum)
-      hist(log10(clust_totals$x), breaks=100, xlab="Log10 cluster size (number of sequences)")
+      hist(log10(clust_totals$x), breaks=100, xlab="Log10 cluster size (number of sequences)", cex.lab=1.5, cex.axis=1.5)
       unique_seqs <- table(clusts)
-      hist(log10(unique_seqs), breaks=100, xlab="Log10 cluster size (number of unique sequences)")
-  })
+      hist(log10(unique_seqs), breaks=100, xlab="Log10 cluster size (number of unique sequences)", cex.lab=1.5, cex.axis=1.5)
+  }, height=300, width=1200)
   
   #Simpson Index (list items must be proportions)
   Simpson <- function(x) Reduce("+", x^2)
   
   tax_consistency <- eventReactive(input$plottemptaxconsist, {
       tax_levels <- c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+      #Requires GreenGenes style classifications
       short_code <- c("k__","p__","c__","o__","f__","g__","s__")
       taxdf <- data.frame()
       for (level in 2:7) {
       simpson_indices <- c()
       for (clusterid in unique(current_clusters)) {
+      #Exclude noise from calculation
         if (clusterid != "-1") {
           tax_ids <- taxonomic_ids[current_clusters==clusterid]
           split_tax<- sapply(tax_ids,function(x) strsplit(x,";")[[1]][level])
@@ -183,15 +197,20 @@ shinyServer(function(input, output, session) {
                          data.frame(values=simpson_indices,
                          level=rep(tax_levels[level], length(simpson_indices))))
       }
-      print(aggregate(taxdf$values, by=list(taxdf$level), FUN=mean))
       taxdf
   })
       
   output$temptaxconsist <- renderPlot({
-      #Plotting temporal taxonomic consistency
-      p<-ggplot(tax_consistency(), aes(y=values, x=level))                                                         
+      #Plotting temporal taxonomic consistency and output table
+      output$temptaxconsisttab <- renderTable({
+        taxdf <- tax_consistency()
+        aggregate(taxdf$values, by=list(taxdf$level), FUN=mean)
+      })
+      p<-ggplot(tax_consistency(), aes(y=values, x=level))                                                     
       p+geom_boxplot()
   })
+  
+
   
   # --------------------
   # Explore Clusters Page
@@ -201,7 +220,7 @@ shinyServer(function(input, output, session) {
   #the given clustering parameter
   changeClusterResult <- observeEvent(input$cluster_param, {
     cluster_index <- (input$cluster_param-min_param)/step_size+1
-    current_clusters <<- as.vector(h5read(tsdatabase_path,"genes/clusters",index=list(cluster_index,1:nsequences)))
+    current_clusters <<- as.vector(h5read(tsdatabase_path,"genes/clusters",index=list(cluster_index,1:nobs)))
   }, ignoreNULL = TRUE)
   
   #Slider for selecting epsilon parameter
@@ -246,13 +265,18 @@ shinyServer(function(input, output, session) {
       return()
     if (is.null(input$cluster_number))
       return()
+    if (as.numeric(input$cluster_number) == -1) {
+       stop("The \"-1\" cluster contains sequences DBSCAN has labelled as noise. This plot is often too large to produce, so it is disabled. See below for a list of sequences that were classified as noise at the given epsilon parameter.")
+       return()
+    }
     # Take only the time-series that are in the current cluster
     subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
     plotWrapper(subset_table)
-  }, height=900, width=1200)
+  }, height=plot_height*100, width=plot_width*100)
   
   # Plot by OTU number
   output$otu_plot <- renderPlot({
+    input$cluster_param
     if (is.null(input$otu_number))
       return()
     # Take only the time-series that are in the current cluster
@@ -264,7 +288,7 @@ shinyServer(function(input, output, session) {
       subset_table <- t(subset_table)
     }
     plotWrapper(subset_table, otu_plot=TRUE)
-  }, height=900, width=1200)
+  }, height=plot_height*100, width=plot_width*100)
   
   #Generates a table with the abundance, taxonomy, and cluster information
   output$infotable <- renderDataTable({
@@ -294,10 +318,14 @@ shinyServer(function(input, output, session) {
     }
     tax_ids <- taxonomic_ids[sequencecluster_labels==input$otu_number]
     time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
-    data.frame(Abundance=rowSums(subset_table),
+    df <- data.frame(Abundance=rowSums(subset_table),
                TimeClustNumber=time_clusts,
                TaxonomicID=tax_ids,
                SequenceID=subset_ids)
+    if (input$excludeNoise) {
+      df <- df[df$TimeClustNumber!=-1,]
+    }
+    df
   })
   
   output$saveTable <- downloadHandler(
@@ -354,7 +382,7 @@ shinyServer(function(input, output, session) {
         return()
       # Take only the time-series that are in the current cluster
       subset_table <- timeseries_table[current_clusters==input$cluster_number, ]   
-      svg("tsplot.svg",height=9,width=12)
+      svg("tsplot.svg",height=plot_height,width=plot_width)
       # Plotting code for main time-series plot
       layout(as.matrix(cbind(c(1,3),c(2,4))))
       plotWrapper(subset_table)
@@ -405,7 +433,7 @@ shinyServer(function(input, output, session) {
         subset_table <- t(subset_table)
       }
       # Plotting code for main OTU plot
-      svg("otuplot.svg",height=9,width=12)
+      svg("otuplot.svg",height=plot_height,width=plot_width)
       layout(as.matrix(cbind(c(1,3),c(2,4))))
       plotWrapper(subset_table, otu_plot=TRUE)
       dev.off()
@@ -415,7 +443,6 @@ shinyServer(function(input, output, session) {
   
   plotWrapper <- function(subset_table, otu_plot=FALSE) {
     # Make a normalized version
-    norm_subset_table <- subset_table/rowSums(subset_table)
     col_norm_subset_table <- t(apply(subset_table,1,function(x) x/timeseries_totals))
     # If a column has been removed by filter step, normalization
     # returns NaNs and for some reason Inf
@@ -424,11 +451,9 @@ shinyServer(function(input, output, session) {
     col_norm_subset_table[is.infinite(col_norm_subset_table)] <- 0
     double_norm <- col_norm_subset_table/rowSums(col_norm_subset_table)
     # Plotting code for main time-series plot
-    p1 <- plotTimeSeriesMatrix(subset_table, "Raw Sequence Abundance", "Time", "Abundance", otu_plot)
-    p2 <- plotTimeSeriesMatrix(col_norm_subset_table, "Normalized by Sequence Depth", "Time", "Relative Abundance", otu_plot)
-    p3 <- plotTimeSeriesMatrix(norm_subset_table, "Normalized within Time-series", "Time", "Relative Abundance", otu_plot)
-    p4 <- plotTimeSeriesMatrix(double_norm, "Normalized by Sequence Depth and Within Time-series", "Time", "Relative Abundance", otu_plot)
-    multiplot(p1, p2, p3, p4)
+    p1 <- plotTimeSeriesMatrix(col_norm_subset_table, "Normalized by Reads per Time Point", "Time", "Relative Abundance", otu_plot)
+    p2 <- plotTimeSeriesMatrix(double_norm, "Normalized by Reads Per Time Point and Within Sequence", "Time", "Relative Abundance", otu_plot)
+    multiplot(p1, p2)
   }
   
   plotTimeSeriesMatrix<-function(mat, plot_title, x_label, y_label, otu_plot=FALSE) {
@@ -442,13 +467,17 @@ shinyServer(function(input, output, session) {
           mmat$time_clust <- time_clusts[mmat$sequence]
           if (input$excludeNoise) {
               mmat <- mmat[mmat$time_clust != -1,]
+              if (nrow(mmat) == 0) {
+                stop("All sequences in this OTU were labelled by DBSCAN as noise. Nothing to plot.")
+                return()
+              }
           }
           p <- ggplot(mmat,aes(x=time,y=value,group=sequence,colour=time_clust))+geom_line(alpha=0.3, size=1.5)
       } else {
           p <- ggplot(mmat,aes(x=time,y=value,group=sequence))+geom_line(alpha=0.3, size=1.5)
       }
       if (length(unique(mask)) > 1) {
-          p <- p+facet_wrap(~mask, nrow=1, scales="free_x")
+          p <- p+facet_wrap(~mask, nrow=1, scales="free")
       }
       p <- p+ggtitle(plot_title)+xlab(x_label)+ylab(y_label)
       return(p)
