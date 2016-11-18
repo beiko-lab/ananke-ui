@@ -5,9 +5,9 @@ Shiny-based interface for exploring ananke results.
 <img src="http://kiwi.cs.dal.ca/~beikolab/AnankeUI.png" width="600">
 
 ### Pre-requisites
-Required R libraries are: [shiny](https://cran.r-project.org/web/packages/shiny/index.html), [gtools](https://cran.r-project.org/web/packages/gtools/index.html), [shinyFiles](https://cran.r-project.org/web/packages/shinyFiles/index.html), [SparseM](https://cran.r-project.org/web/packages/SparseM/index.html), [ggplot2](https://cran.r-project.org/web/packages/SparseM/index.html), and [rhdf5](http://bioconductor.org/packages/release/bioc/html/rhdf5.html). With the exception of rhdf5, these can be installed from CRAN with the usual `install.packages()` command. rhdf5 can be installed via Bioconductor:
+Required R libraries are: [shiny](https://cran.r-project.org/web/packages/shiny/index.html), [gtools](https://cran.r-project.org/web/packages/gtools/index.html), [shinyFiles](https://cran.r-project.org/web/packages/shinyFiles/index.html), [SparseM](https://cran.r-project.org/web/packages/SparseM/index.html), [ggplot2](https://cran.r-project.org/web/packages/SparseM/index.html), [gtools](https://cran.r-project.org/web/packages/gtools/index.html) and [rhdf5](http://bioconductor.org/packages/release/bioc/html/rhdf5.html). With the exception of rhdf5, these can be installed from CRAN with the usual `install.packages()` command. rhdf5 can be installed via Bioconductor:
 ```
-install.packages(c("shiny","shinyFiles","SparseM","ggplot2"))
+install.packages(c("shiny","shinyFiles","SparseM","ggplot2","gtools"))
 source("https://bioconductor.org/biocLite.R")
 biocLite("rhdf5")
 ```
