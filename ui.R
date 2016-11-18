@@ -79,10 +79,10 @@ shinyUI(
             )
           )                                        
         ),
-        tabPanel("Sequences by OTU", value="panel2",
+        tabPanel("Sequence Identity-based Clusters", value="panel2",
           fluidPage(
             sidebarPanel(
-              titlePanel("Explore OTU Clustering"),
+              titlePanel("Explore Sequence Identity-based Clustering"),
               fluidRow(
                 uiOutput("OTUSelector")
               ),
