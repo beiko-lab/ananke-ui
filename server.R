@@ -39,12 +39,12 @@ shinyServer(function(input, output, session) {
   nsamples <- NULL
   nparams <- NULL
   nobs <- NULL
-  current_clusters <- NULL
   timeseries_table <- NULL
   timeseries_totals <- NULL
   cluster_names <- NULL
   file_version <- NULL
   mask <- NULL
+  values <- reactiveValues()
   
   loadFilesResult <- observeEvent(input$loadFiles, {
     withProgress(message = 'Loading database file, please wait...', value = 0, {
@@ -166,6 +166,11 @@ shinyServer(function(input, output, session) {
       hist(log10(clust_totals$x), breaks=100, xlab="Log10 cluster size (number of sequences)", cex.lab=1.5, cex.axis=1.5)
       unique_seqs <- table(clusts)
       hist(log10(unique_seqs), breaks=100, xlab="Log10 cluster size (number of unique sequences)", cex.lab=1.5, cex.axis=1.5)
+      totSeqsAtMax <- mean(clust_totals$x)
+      uniqSeqsAtMax <- mean(unique_seqs)
+      output$clustSize <- renderText({
+          paste("Mean Total Sequences: ", totSeqsAtMax, ", Mean Unique Sequences: ", uniqSeqsAtMax, sep="")
+      })
   }, height=300, width=1200)
   
   #Simpson Index (list items must be proportions)
@@ -178,10 +183,10 @@ shinyServer(function(input, output, session) {
       taxdf <- data.frame()
       for (level in 2:7) {
       simpson_indices <- c()
-      for (clusterid in unique(current_clusters)) {
+      for (clusterid in unique(values$current_clusters)) {
       #Exclude noise from calculation
         if (clusterid != "-1") {
-          tax_ids <- taxonomic_ids[current_clusters==clusterid]
+          tax_ids <- taxonomic_ids[values$current_clusters==clusterid]
           split_tax<- sapply(tax_ids,function(x) strsplit(x,";")[[1]][level])
           taxtable <- table(as.factor(split_tax))
           taxtable <- taxtable[rownames(taxtable!=short_code[level])]
@@ -216,12 +221,32 @@ shinyServer(function(input, output, session) {
   # Explore Clusters Page
   # --------------------
   
-  #Populate the current_clusters variable with the cluster names for
+  filterClusters <- function() {
+    if (input$selectTaxon != "") {
+      selectIndices <- grep(input$selectTaxon,taxonomic_ids)
+      if (length(selectIndices) > 0) {
+          values$selected_clusters <<- values$current_clusters[selectIndices]
+      } else {
+        values$selected_clusters <<- NULL
+      }
+    } else {
+      values$selected_clusters <<- values$current_clusters
+    }
+  }
+  
+  #Populate the values$current_clusters variable with the cluster names for
   #the given clustering parameter
   changeClusterResult <- observeEvent(input$cluster_param, {
     cluster_index <- (input$cluster_param-min_param)/step_size+1
-    current_clusters <<- as.vector(h5read(tsdatabase_path,"genes/clusters",index=list(cluster_index,1:nobs)))
+    values$current_clusters <<- as.vector(h5read(tsdatabase_path,"genes/clusters",index=list(cluster_index,1:nobs)))
+    values$selected_clusters <<- values$current_clusters
+    #If we have a taxa filter string, filter out clusters that don't contain that string
+    filterClusters()
   }, ignoreNULL = TRUE)
+  
+  filterTaxa <- observeEvent(input$selectTaxon, {
+        filterClusters()
+  })
   
   #Slider for selecting epsilon parameter
   output$clusterParamSelector <- renderUI({
@@ -239,8 +264,13 @@ shinyServer(function(input, output, session) {
   output$clusterSelector <- renderUI({
     if (is.null(input$cluster_param))
       return()
-    cluster_abunds <- aggregate(rowSums(timeseries_table), by=list(current_clusters), FUN=sum)
+    cluster_abunds <- aggregate(rowSums(timeseries_table), by=list(values$current_clusters), FUN=sum)
     cluster_names <- as.numeric(cluster_abunds[order(cluster_abunds[,2], decreasing=TRUE),1])
+    cluster_names <- cluster_names[cluster_names %in% values$selected_clusters]
+    if (length(cluster_names) == 0) {
+      stop("No clusters matching taxa filter.")
+      return()
+    }
     if ((length(cluster_names) > 1) & (cluster_names[1] == -1)) {
         select <- cluster_names[2]
     } else {
@@ -270,8 +300,13 @@ shinyServer(function(input, output, session) {
        return()
     }
     # Take only the time-series that are in the current cluster
-    subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-    plotWrapper(subset_table)
+    subset_table <- timeseries_table[values$current_clusters==input$cluster_number, ]
+    if (dim(subset_table)[1]>0) {
+        plotWrapper(subset_table)
+    } else {
+        stop("The selected subset contains no data.")
+        return()
+    }
   }, height=plot_height*100, width=plot_width*100)
   
   # Plot by OTU number
@@ -296,10 +331,10 @@ shinyServer(function(input, output, session) {
       return()
     if (is.null(input$cluster_number))
       return()
-    subset_ids <- sequence_ids[current_clusters==input$cluster_number]
-    subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-    tax_ids <- taxonomic_ids[current_clusters==input$cluster_number]
-    phylo_clusters <- sequencecluster_labels[current_clusters==input$cluster_number]
+    subset_ids <- sequence_ids[values$current_clusters==input$cluster_number]
+    subset_table <- timeseries_table[values$current_clusters==input$cluster_number, ]
+    tax_ids <- taxonomic_ids[values$current_clusters==input$cluster_number]
+    phylo_clusters <- sequencecluster_labels[values$current_clusters==input$cluster_number]
     data.frame(Abundance=rowSums(subset_table),
                PhyloClusterNumber=phylo_clusters,
                TaxonomicID=tax_ids,
@@ -317,7 +352,7 @@ shinyServer(function(input, output, session) {
       subset_table <- t(subset_table)
     }
     tax_ids <- taxonomic_ids[sequencecluster_labels==input$otu_number]
-    time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
+    time_clusts <- values$current_clusters[sequencecluster_labels==input$otu_number]
     df <- data.frame(Abundance=rowSums(subset_table),
                TimeClustNumber=time_clusts,
                TaxonomicID=tax_ids,
@@ -333,15 +368,15 @@ shinyServer(function(input, output, session) {
       paste('timeseries_cluster-eps_', input$cluster_param, "-num_", input$cluster_number, '.csv', sep="")
     },
     content <- function(file) {
-        subset_ids <- sequence_ids[current_clusters==input$cluster_number]
-        subset_table <- timeseries_table[current_clusters==input$cluster_number, ]
-        tax_ids <- taxonomic_ids[current_clusters==input$cluster_number]
-        phylo_clusters <- sequencecluster_labels[current_clusters==input$cluster_number]
+        subset_ids <- sequence_ids[values$current_clusters==input$cluster_number]
+        subset_table <- timeseries_table[values$current_clusters==input$cluster_number, ]
+        tax_ids <- taxonomic_ids[values$current_clusters==input$cluster_number]
+        phylo_clusters <- sequencecluster_labels[values$current_clusters==input$cluster_number]
         save_df <- data.frame(SequenceID=subset_ids,
                Abundance=rowSums(subset_table),
                TaxonomicID=tax_ids,
                PhyloClusterNumber=phylo_clusters)
-        time_series <- as.data.frame(timeseries_table[current_clusters==input$cluster_number, ])
+        time_series <- as.data.frame(timeseries_table[values$current_clusters==input$cluster_number, ])
         colnames(time_series) <- tp
         save_df <- cbind(save_df, time_series)
         write.csv(save_df, file)
@@ -357,7 +392,7 @@ shinyServer(function(input, output, session) {
         full_table <- timeseries_table
         tax_ids <- taxonomic_ids
         phylo_clusters <- sequencecluster_labels
-        time_clusts <- current_clusters
+        time_clusts <- values$current_clusters
         save_df <- data.frame(SequenceID=ids,
                Abundance=rowSums(full_table),
                TaxonomicID=tax_ids,
@@ -381,7 +416,7 @@ shinyServer(function(input, output, session) {
       if (is.null(input$cluster_number))
         return()
       # Take only the time-series that are in the current cluster
-      subset_table <- timeseries_table[current_clusters==input$cluster_number, ]   
+      subset_table <- timeseries_table[values$current_clusters==input$cluster_number, ]   
       svg("tsplot.svg",height=plot_height,width=plot_width)
       # Plotting code for main time-series plot
       layout(as.matrix(cbind(c(1,3),c(2,4))))
@@ -403,7 +438,7 @@ shinyServer(function(input, output, session) {
         subset_table <- t(subset_table)
       }
       tax_ids <- taxonomic_ids[sequencecluster_labels==input$otu_number]
-      time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
+      time_clusts <- values$current_clusters[sequencecluster_labels==input$otu_number]
       
       save_df <- data.frame(Abundance=rowSums(subset_table),
                    TimeClustNumber=time_clusts,
@@ -463,7 +498,7 @@ shinyServer(function(input, output, session) {
       mmat$mask <- mask
       colnames(mmat) <- c("time","sequence","value","mask")
       if (otu_plot) {
-          time_clusts <- current_clusters[sequencecluster_labels==input$otu_number]
+          time_clusts <- values$current_clusters[sequencecluster_labels==input$otu_number]
           mmat$time_clust <- time_clusts[mmat$sequence]
           if (input$excludeNoise) {
               mmat <- mmat[mmat$time_clust != -1,]

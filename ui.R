@@ -30,6 +30,8 @@ shinyUI(
         textOutput("maxCluster"),
         "Epsilon at which maximum number of clusters is found:",
         textOutput("maxEps"),
+        "Average total and unique sequences in a cluster at this Epsilon value:",
+        textOutput("clustSize"),
         "Proportion of data that are labeled as noise at this epsilon:",
         textOutput("epsNoise"),
         br(),
@@ -50,6 +52,9 @@ shinyUI(
               ),
               fluidRow(
                  uiOutput("clusterSelector")
+              ),
+              fluidRow(
+                textInput("selectTaxon", "Show Clusters With Taxa Matching:", placeholder="All taxa")
               ),
               br(),
               br(),
