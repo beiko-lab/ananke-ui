@@ -223,7 +223,10 @@ shinyServer(function(input, output, session) {
   
   filterClusters <- function() {
     if (input$selectTaxon != "") {
-      selectIndices <- grep(input$selectTaxon,taxonomic_ids)
+      selectIndices <- NULL
+      try({
+          selectIndices <- grep(input$selectTaxon, taxonomic_ids, ignore.case=TRUE)
+      })
       if (length(selectIndices) > 0) {
           values$selected_clusters <<- values$current_clusters[selectIndices]
       } else {
