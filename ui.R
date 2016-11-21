@@ -89,6 +89,10 @@ shinyUI(
               br(),
               checkboxInput("excludeNoise", label = "Exclude Noise (-1) from Plot", value = FALSE),
               br(),
+              fluidRow(
+                textInput("selectTaxonSeqClust", "Show Clusters With Taxa Matching:", placeholder="All taxa")
+              ),
+              br(),
               downloadLink("saveOTUTable", "Save current OTU (.csv)"),
               br(),
               downloadLink("saveOTUPlot", "Save current plot (.svg)"),

@@ -237,6 +237,22 @@ shinyServer(function(input, output, session) {
     }
   }
   
+  filterSeqClusters <- function() {
+    if (input$selectTaxonSeqClust != "") {
+      selectIndices <- NULL
+      try({
+        selectIndices <- grep(input$selectTaxonSeqClust, taxonomic_ids, ignore.case=TRUE)
+      })
+      if (length(selectIndices) > 0) {
+        values$selected_seqclusters <<- sequencecluster_labels[selectIndices]
+      } else {
+        values$selected_seqclusters <<- NULL
+      }
+    } else {
+      values$selected_seqclusters <<- sequencecluster_labels
+    }
+  }
+  
   #Populate the values$current_clusters variable with the cluster names for
   #the given clustering parameter
   changeClusterResult <- observeEvent(input$cluster_param, {
@@ -248,7 +264,11 @@ shinyServer(function(input, output, session) {
   }, ignoreNULL = TRUE)
   
   filterTaxa <- observeEvent(input$selectTaxon, {
-        filterClusters()
+      filterClusters()
+  })
+  
+  filterTaxaSeq <- observeEvent(input$selectTaxonSeqClust, {
+      filterSeqClusters()
   })
   
   #Slider for selecting epsilon parameter
@@ -285,8 +305,14 @@ shinyServer(function(input, output, session) {
   
   #Select OTU number widget
   output$OTUSelector <- renderUI({
+    filterSeqClusters()
     cluster_abunds <- aggregate(rowSums(timeseries_table), by=list(sequencecluster_labels), FUN=sum)
     cluster_names <- cluster_abunds[order(cluster_abunds[,2], decreasing=TRUE),1]
+    cluster_names <- cluster_names[cluster_names %in% values$selected_seqclusters]
+    if (length(cluster_names) == 0) {
+      stop("No clusters matching taxa filter.")
+      return()
+    }
     select <- cluster_names[1]
     selectInput('otu_number', 'OTU Cluster number:', choices = cluster_names,
                 multiple = FALSE, selectize = FALSE, selected = select)
